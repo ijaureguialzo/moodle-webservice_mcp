@@ -20,6 +20,11 @@ namespace webservice_mcp\local;
 
 use moodle_exception;
 use core_external\external_api;
+use core_external\external_description;
+use core_external\external_multiple_structure;
+use core_external\external_single_structure;
+use core_external\external_value;
+use core_external\external_warnings;
 use Exception;
 use webservice_base_server;
 
@@ -307,42 +312,38 @@ class server extends webservice_base_server {
     /**
      * Send a successful response for standard function calls.
      *
-     * This method validates return values using external_api and wraps
-     * the result in MCP tools/call format when appropriate.
+     * Applies schema-aware type coercion so that every field in the response
+     * matches the PHP type declared by Moodle's external API schema, without
+     * calling clean_returnvalue() (which throws for valid-but-mistyped data
+     * such as null in optional boolean fields or integers in PARAM_RAW slots).
      *
      * @return void
      */
     protected function send_response(): void {
-        $validatedvalues = null;
-        $exception = null;
-
-        try {
-            if ($this->function->returns_desc !== null) {
-                $validatedvalues = external_api::clean_returnvalue(
-                    $this->function->returns_desc,
-                    $this->returns
-                );
-            } else {
-                $validatedvalues = $this->returns;
-            }
-        } catch (Exception $ex) {
-            $exception = $ex;
+        // Apply schema-aware coercion: walk schema + data together and emit
+        // the correct PHP type for each leaf field.  This handles cases such as:
+        //   • PARAM_RAW returning int/bool → converted to string
+        //   • PARAM_BOOL optional returning null → false
+        //   • PARAM_INT returning string → (int)
+        // without the side-effect of converting every integer field to a string
+        // the way the old generic coerce_types() fallback did.
+        if ($this->function->returns_desc !== null) {
+            $validatedvalues = $this->schema_aware_coerce(
+                $this->function->returns_desc,
+                $this->returns
+            );
+        } else {
+            $validatedvalues = $this->returns;
         }
 
-        if ($exception !== null) {
-            $response = $this->generate_error($exception);
-            echo $this->safe_json_encode($response);
-            return;
-        }
-
-        // Fix arrays to be objects for tools/call format.
+        // Wrap result for tools/call format.
         $validatedvalues = [
             'result' => $validatedvalues,
         ];
 
         $content = [
             'type' => 'text',
-            'text' => json_encode($validatedvalues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'text' => $this->safe_json_encode($validatedvalues),
         ];
 
         $result = [
@@ -357,6 +358,116 @@ class server extends webservice_base_server {
         ];
 
         echo $this->safe_json_encode($payload);
+    }
+
+    /**
+     * Schema-aware type coercion.
+     *
+     * Walks the Moodle external API schema descriptor and the raw response data
+     * together, applying the minimum necessary type conversion at every leaf so
+     * that the returned value always matches its declared PHP type.
+     *
+     * Rules applied per PARAM_* type:
+     *   PARAM_BOOL         → (bool) — null becomes false for optional fields
+     *   PARAM_INT          → (int)
+     *   PARAM_FLOAT        → (float)
+     *   PARAM_RAW and rest → (string) — ints/bools Moodle sometimes returns here
+     *                                    are cast to string
+     *
+     * This avoids the old double-failure pattern:
+     *   1. clean_returnvalue() throws because of a type mismatch
+     *   2. coerce_types() blindly converts every scalar (including valid integers)
+     *      to a string, breaking fields that were correct to begin with.
+     *
+     * @param external_description|null $desc  Schema descriptor for this node.
+     * @param mixed                     $data  Raw value from Moodle.
+     * @return mixed  Coerced value.
+     */
+    protected function schema_aware_coerce(?external_description $desc, mixed $data): mixed {
+        // No schema → pass data through unchanged.
+        if ($desc === null) {
+            return $data;
+        }
+
+        // --- external_multiple_structure (JSON array) ---
+        if ($desc instanceof external_multiple_structure) {
+            if ($data === null) {
+                return [];
+            }
+            $result = [];
+            $items = is_array($data) ? $data : (array) $data;
+            foreach ($items as $item) {
+                $result[] = $this->schema_aware_coerce($desc->content, $item);
+            }
+            return $result;
+        }
+
+        // --- external_single_structure (JSON object) ---
+        if ($desc instanceof external_single_structure) {
+            if ($data === null) {
+                return [];
+            }
+            $map = is_array($data) ? $data : (array) $data;
+            $result = [];
+            foreach ($desc->keys as $key => $subdesc) {
+                // Use declared default when the key is completely absent.
+                $value = array_key_exists($key, $map) ? $map[$key] : $subdesc->default ?? null;
+                $result[$key] = $this->schema_aware_coerce($subdesc, $value);
+            }
+            return $result;
+        }
+
+        // --- external_warnings (special Moodle type, always an array of objects) ---
+        if ($desc instanceof external_warnings) {
+            if ($data === null) {
+                return [];
+            }
+            $items = is_array($data) ? $data : (array) $data;
+            $result = [];
+            foreach ($items as $w) {
+                $result[] = is_array($w) ? $w : (array) $w;
+            }
+            return $result;
+        }
+
+        // --- external_value (leaf scalar) ---
+        if ($desc instanceof external_value) {
+            // Null handling for optional fields.
+            if ($data === null) {
+                if ($desc->required === VALUE_OPTIONAL || $desc->required === VALUE_DEFAULT) {
+                    // Return a safe zero-value for the declared type.
+                    return match ($desc->type) {
+                        PARAM_BOOL  => false,
+                        PARAM_INT   => 0,
+                        PARAM_FLOAT => 0.0,
+                        default     => '',
+                    };
+                }
+                // Required field that is null — return a safe default anyway to
+                // avoid a PHP error; the data is already wrong at the Moodle level.
+                return match ($desc->type) {
+                    PARAM_BOOL  => false,
+                    PARAM_INT   => 0,
+                    PARAM_FLOAT => 0.0,
+                    default     => '',
+                };
+            }
+
+            // Cast to the declared type.
+            return match ($desc->type) {
+                PARAM_BOOL  => (bool) $data,
+                PARAM_INT   => (int) $data,
+                PARAM_FLOAT => (float) $data,
+                // PARAM_RAW, PARAM_TEXT, PARAM_ALPHA, PARAM_ALPHANUMEXT, etc.
+                // Moodle sometimes returns integers for these fields (e.g.
+                // courseformatoptions[].value, attachment). Cast to string so
+                // consumers always get what the schema advertises.
+                default     => (string) $data,
+            };
+        }
+
+        // Unknown descriptor type — return data as-is.
+        return $data;
     }
 
     /**
