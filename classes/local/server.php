@@ -34,7 +34,7 @@ use webservice_base_server;
  * MCP (Model Context Protocol) web service server implementation.
  *
  * This server handles JSON-RPC 2.0 requests following the MCP specification.
- * It supports MCP-specific methods like initialize, ping, tools/list, and tools/call,
+ * It supports MCP-specific methods like initializem notifications/initialized, ping, tools/list, and tools/call,
  * as well as direct function invocation.
  *
  * @package     webservice_mcp
@@ -195,7 +195,7 @@ class server extends webservice_base_server {
 
     /**
      * Handle MCP-specific endpoints: CORS preflight, server info (GET),
-     * ping, initialize and tools/list (POST).
+     * initialize, notifications/initialized, ping and tools/list (POST).
      *
      * Exits after sending a response.
      *
@@ -228,6 +228,10 @@ class server extends webservice_base_server {
         switch ($this->mcprequest->method) {
             case 'initialize':
                 $this->send_initialize_response();
+                break;
+
+            case 'notifications/initialized':
+                $this->handle_initialized_notification();
                 break;
 
             case 'ping':
@@ -268,19 +272,6 @@ class server extends webservice_base_server {
     }
 
     /**
-     * Sends a JSON-RPC ping response.
-     *
-     * @return void
-     */
-    protected function send_ping_response(): void {
-        echo $this->safe_json_encode([
-            'jsonrpc' => '2.0',
-            'result' => new stdClass(),
-            'id' => $this->mcprequest->id,
-        ]);
-    }
-
-    /**
      * Send MCP initialize JSON-RPC response.
      *
      * @return void
@@ -305,6 +296,30 @@ class server extends webservice_base_server {
         ];
 
         echo $this->safe_json_encode($payload);
+    }
+
+    /**
+     * Handle MCP notifications/initialized client notification.
+     *
+     * According to MCP specification, notifications do not expect a JSON-RPC response body.
+     *
+     * @return void
+     */
+    protected function handle_initialized_notification(): void {
+        http_response_code(204);
+    }
+
+    /**
+     * Sends a JSON-RPC ping response.
+     *
+     * @return void
+     */
+    protected function send_ping_response(): void {
+        echo $this->safe_json_encode([
+            'jsonrpc' => '2.0',
+            'result' => new stdClass(),
+            'id' => $this->mcprequest->id,
+        ]);
     }
 
     /**

@@ -95,6 +95,9 @@ final class client_test extends advanced_testcase {
         // Verify ping method exists.
         $this->assertTrue(method_exists($client, 'ping'));
 
+        // Verify notify_initialized notification method exists.
+        $this->assertTrue(method_exists($client, 'notify_initialized'));
+
         // Verify initialize method exists.
         $this->assertTrue(method_exists($client, 'initialize'));
     }
@@ -147,6 +150,31 @@ final class client_test extends advanced_testcase {
         $client = new webservice_mcp_client($serverurl, $token);
 
         $this->assertTrue(method_exists($client, 'ping'));
+    }
+
+    /**
+     * Test notify_initialized notification method signature.
+     */
+    public function test_notify_initialized_method(): void {
+        $this->resetAfterTest(true);
+
+        $serverurl = 'http://example.com/webservice/mcp/server.php';
+        $token = 'test_token';
+
+        $client = new webservice_mcp_client($serverurl, $token);
+
+        // Check if notify and initialized methods exist.
+        $this->assertTrue(method_exists($client, 'notify'));
+        $this->assertTrue(method_exists($client, 'notify_initialized'));
+
+        // Verify notify method structure.
+        $reflection = new ReflectionMethod($client, 'notify');
+        $params = $reflection->getParameters();
+
+        $this->assertCount(2, $params);
+        $this->assertEquals('method', $params[0]->getName());
+        $this->assertEquals('params', $params[1]->getName());
+        $this->assertEquals([], $params[1]->getDefaultValue());
     }
 
     /**

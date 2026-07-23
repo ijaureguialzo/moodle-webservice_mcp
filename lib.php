@@ -145,4 +145,48 @@ class webservice_mcp_client {
     public function ping() {
         return $this->call('ping', []);
     }
+
+    /**
+     * Send a notification to the MCP server.
+     *
+     * @param string $method The notification method name.
+     * @param array $params Optional parameters.
+     * @return mixed
+     */
+    public function notify(string $method, array $params = []) {
+        $request = [
+            'jsonrpc' => '2.0',
+            'method' => $method,
+        ];
+
+        if (!empty($params)) {
+            $request['params'] = $params;
+        }
+
+        $requestjson = json_encode($request);
+
+        $url = new moodle_url($this->serverurl);
+        $url->param('wstoken', $this->token);
+
+        $curl = new curl();
+        $options = [
+            'CURLOPT_HTTPHEADER' => [
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($requestjson),
+            ],
+        ];
+
+        $result = $curl->post($url->out(false), $requestjson, $options);
+
+        return json_decode($result, true);
+    }
+
+    /**
+     * Send notifications/initialized to notify the server that initialization is complete.
+     *
+     * @return mixed
+     */
+    public function notify_initialized() {
+        return $this->notify('notifications/initialized');
+    }
 }
