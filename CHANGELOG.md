@@ -1,6 +1,12 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Version 0.6.0 (2026072300)
+- Feat: Support MCP `notifications/initialized`
+- Feat: Add JSON-RPC `ping` method to MCP server with unit tests and documentation
+- Fix: Update namespace for `moodle_exception` usage
+- Fix: Update nullable value handling in schema generation and improve type consistency
+
 ## Version 0.5.0 (2026062901)
 - Fix: Support nullable parameters in tool provider schema
 - Improved: Error handling with detailed JSON-RPC error responses
