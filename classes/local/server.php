@@ -225,6 +225,10 @@ class server extends webservice_base_server {
         }
 
         switch ($this->mcprequest->method) {
+            case 'ping':
+                $this->send_ping_response();
+                break;
+
             case 'initialize':
                 $this->send_initialize_response();
                 break;
@@ -260,6 +264,19 @@ class server extends webservice_base_server {
         ];
 
         echo $this->safe_json_encode($response);
+    }
+
+    /**
+     * Sends a JSON-RPC ping response.
+     *
+     * @return void
+     */
+    protected function send_ping_response(): void {
+        echo $this->safe_json_encode([
+            'jsonrpc' => '2.0',
+            'result' => new \stdClass(),
+            'id' => $this->mcprequest->id,
+        ]);
     }
 
     /**
