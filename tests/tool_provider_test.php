@@ -42,6 +42,46 @@ require_once($CFG->dirroot . '/webservice/tests/helpers.php');
  */
 final class tool_provider_test extends externallib_advanced_testcase {
     /**
+     * Test schema generation for nullable value.
+     */
+    public function test_generate_schema_nullable_value(): void {
+        $this->resetAfterTest(true);
+
+        $reflection = new ReflectionClass(tool_provider::class);
+        $method = $reflection->getMethod('generate_schema');
+        $method->setAccessible(true);
+
+        // Test when NULL is allowed.
+        $nullableparam = new external_value(
+            PARAM_TEXT,
+            'Nullable field',
+            VALUE_OPTIONAL,
+            null,
+            NULL_ALLOWED
+        );
+
+        $nullableschema = $method->invoke(null, $nullableparam);
+
+        $this->assertIsArray($nullableschema['type']);
+        $this->assertEquals(['string', 'null'], $nullableschema['type']);
+        $this->assertEquals('Nullable field', $nullableschema['description']);
+
+        // Test when NULL is NOT allowed.
+        $notnullparam = new external_value(
+            PARAM_TEXT,
+            'Non-nullable field',
+            VALUE_OPTIONAL,
+            null,
+            NULL_NOT_ALLOWED
+        );
+
+        $notnullschema = $method->invoke(null, $notnullparam);
+
+        $this->assertIsString($notnullschema['type']);
+        $this->assertEquals('string', $notnullschema['type']);
+    }
+
+    /**
      * Test schema generation for simple string value.
      */
     public function test_generate_schema_string(): void {
@@ -74,7 +114,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
 
         $schema = $method->invoke(null, $param);
 
-        $this->assertEquals('number', $schema['type']);
+        $this->assertEquals('integer', $schema['type']);
         $this->assertEquals('Test integer', $schema['description']);
         $this->assertArrayNotHasKey('_required', $schema);
     }
@@ -138,7 +178,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $this->assertArrayHasKey('active', $schema['properties']);
 
         $this->assertEquals('string', $schema['properties']['name']['type']);
-        $this->assertEquals('number', $schema['properties']['age']['type']);
+        $this->assertEquals('integer', $schema['properties']['age']['type']);
         $this->assertEquals('boolean', $schema['properties']['active']['type']);
 
         $this->assertArrayHasKey('required', $schema);
@@ -223,7 +263,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $method->setAccessible(true);
 
         $this->assertEquals('string', $method->invoke(null, new external_value(PARAM_TEXT)));
-        $this->assertEquals('number', $method->invoke(null, new external_value(PARAM_INT)));
+        $this->assertEquals('integer', $method->invoke(null, new external_value(PARAM_INT)));
         $this->assertEquals('number', $method->invoke(null, new external_value(PARAM_FLOAT)));
         $this->assertEquals('boolean', $method->invoke(null, new external_value(PARAM_BOOL)));
         $this->assertEquals('object', $method->invoke(null, new external_single_structure([])));

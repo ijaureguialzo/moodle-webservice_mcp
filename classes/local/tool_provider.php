@@ -23,6 +23,7 @@ use core_external\external_description;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use Throwable;
 
 /**
  * Tool provider for MCP protocol.
@@ -65,7 +66,12 @@ class tool_provider {
         );
 
         foreach ($functions as $function) {
-            $info = external_api::external_function_info($function->functionname);
+            try {
+                $info = external_api::external_function_info($function->functionname);
+            } catch (Throwable $e) {
+                // Skip functions that fail to load (e.g. missing plugin class).
+                continue;
+            }
 
             // Skip if function info is unavailable or deprecated.
             if (empty($info) || !empty($info->deprecated)) {
@@ -102,7 +108,10 @@ class tool_provider {
             return ['type' => 'object', 'properties' => []];
         }
 
-        return self::generate_schema($desc);
+        $schema = self::generate_schema($desc);
+        unset($schema['_required']);
+
+        return $schema;
     }
 
     /**
@@ -124,13 +133,18 @@ class tool_provider {
                 $schema['description'] = $param->desc;
             }
 
+            if ($param->required === VALUE_DEFAULT && $param->default !== null) {
+                $schema['default'] = $param->default;
+            }
+
             // Mark as internally required for parent structure processing.
             if ($param->required === VALUE_REQUIRED) {
                 $schema['_required'] = true;
             }
 
-            if ($param->allownull) {
-                $schema['type'] = [$type, null];
+            // Handling for nullable values in JSON Schema.
+            if ($param->allownull == NULL_ALLOWED) {
+                $schema['type'] = [$type, 'null'];
             }
 
             return $schema;
@@ -180,12 +194,13 @@ class tool_provider {
      * Convert Moodle parameter type to JSON Schema type.
      *
      * @param external_description $param The parameter description.
-     * @return string JSON Schema type (string, number, boolean, object, array).
+     * @return string JSON Schema type (string, integer, number, boolean, object, array).
      */
     protected static function get_schema_type(external_description $param): string {
         if ($param instanceof external_value) {
             switch ($param->type) {
                 case PARAM_INT:
+                    return 'integer';
                 case PARAM_FLOAT:
                     return 'number';
                 case PARAM_BOOL:
