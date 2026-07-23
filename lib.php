@@ -134,4 +134,15 @@ class webservice_mcp_client {
     public function initialize() {
         return $this->call('initialize', []);
     }
+
+    /**
+     * Sends a ping request to the server.
+     *
+     * Verifies connectivity and checks if the server is responsive.
+     *
+     * @return mixed The decoded response from the ping request.
+     */
+    public function ping() {
+        return $this->call('ping', []);
+    }
 }

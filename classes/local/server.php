@@ -27,13 +27,14 @@ use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use Exception;
+use stdClass;
 use webservice_base_server;
 
 /**
  * MCP (Model Context Protocol) web service server implementation.
  *
  * This server handles JSON-RPC 2.0 requests following the MCP specification.
- * It supports MCP-specific methods like initialize, tools/list, and tools/call,
+ * It supports MCP-specific methods like initialize, ping, tools/list, and tools/call,
  * as well as direct function invocation.
  *
  * @package     webservice_mcp
@@ -194,7 +195,7 @@ class server extends webservice_base_server {
 
     /**
      * Handle MCP-specific endpoints: CORS preflight, server info (GET),
-     * initialize and tools/list (POST).
+     * ping, initialize and tools/list (POST).
      *
      * Exits after sending a response.
      *
@@ -225,12 +226,12 @@ class server extends webservice_base_server {
         }
 
         switch ($this->mcprequest->method) {
-            case 'ping':
-                $this->send_ping_response();
-                break;
-
             case 'initialize':
                 $this->send_initialize_response();
+                break;
+
+            case 'ping':
+                $this->send_ping_response();
                 break;
 
             case 'tools/list':
@@ -274,7 +275,7 @@ class server extends webservice_base_server {
     protected function send_ping_response(): void {
         echo $this->safe_json_encode([
             'jsonrpc' => '2.0',
-            'result' => new \stdClass(),
+            'result' => new stdClass(),
             'id' => $this->mcprequest->id,
         ]);
     }

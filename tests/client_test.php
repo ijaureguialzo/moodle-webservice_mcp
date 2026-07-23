@@ -92,6 +92,9 @@ final class client_test extends advanced_testcase {
         // Verify call_tool method exists.
         $this->assertTrue(method_exists($client, 'call_tool'));
 
+        // Verify ping method exists.
+        $this->assertTrue(method_exists($client, 'ping'));
+
         // Verify initialize method exists.
         $this->assertTrue(method_exists($client, 'initialize'));
     }
@@ -130,6 +133,20 @@ final class client_test extends advanced_testcase {
         $this->assertCount(2, $params);
         $this->assertEquals('toolname', $params[0]->getName());
         $this->assertEquals('arguments', $params[1]->getName());
+    }
+
+    /**
+     * Test ping method signature.
+     */
+    public function test_ping_method(): void {
+        $this->resetAfterTest(true);
+
+        $serverurl = 'http://example.com/webservice/mcp/server.php';
+        $token = 'test_token';
+
+        $client = new webservice_mcp_client($serverurl, $token);
+
+        $this->assertTrue(method_exists($client, 'ping'));
     }
 
     /**

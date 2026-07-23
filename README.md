@@ -285,9 +285,10 @@ curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php" \
 
 ### Supported MCP Methods
 
-| Method | Description | Parameters |
+| Method       | Description | Parameters |
 |--------|-------------|------------|
 | `initialize` | Initialize MCP session | None |
+| `ping`       | Ping MCP session | None |
 | `tools/list` | List available tools | None |
 | `tools/call` | Invoke a specific tool | `name` (string), `arguments` (object) |
 
@@ -375,7 +376,7 @@ vendor/bin/phpunit --testsuite webservice_mcp_testsuite
 
 The plugin includes comprehensive tests for:
 - ✅ JSON-RPC 2.0 request parsing and validation
-- ✅ MCP protocol methods (initialize, tools/list, tools/call)
+- ✅ MCP protocol methods (initialize, 'ping', tools/list, tools/call)
 - ✅ Tool discovery and schema generation
 - ✅ Client class functionality
 - ✅ Error handling and edge cases
@@ -397,6 +398,7 @@ The plugin includes comprehensive tests for:
 #### 3. "Method not found"
 **Solution**: Check that the method name is correct:
 - `initialize`
+- `ping`
 - `tools/list`
 - `tools/call`
 
