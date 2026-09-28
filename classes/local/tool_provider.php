@@ -140,6 +140,7 @@ class tool_provider {
             // Mark as internally required for parent structure processing.
             if ($param->required === VALUE_REQUIRED) {
                 $schema['_required'] = true;
+            }
 
             return $schema;
         }
