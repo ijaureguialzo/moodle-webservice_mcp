@@ -26,7 +26,6 @@ use core_external\external_description;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
-use core_external\external_warnings;
 use Exception;
 use stdClass;
 use webservice_base_server;
@@ -219,9 +218,9 @@ class server extends webservice_base_server {
             // Bad request.
             http_response_code(400);
             echo $this->safe_json_encode([
-                'jsonrpc' => '2.0',
+                'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
                 'error' => ['code' => -32600, 'message' => 'Invalid Request'],
-                'id' => $this->mcprequest?->id ?? null,
+                'id' => $this->mcprequest->id ?? null,
             ]);
             exit;
         }
@@ -245,9 +244,8 @@ class server extends webservice_base_server {
 
             default:
                 // If method unexpectedly reached here, return method not found.
-                http_response_code(404);
                 $payload = [
-                    'jsonrpc' => '2.0',
+                    'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
                     'error' => ['code' => -32601, 'message' => 'Method not found'],
                     'id' => $this->mcprequest->id ?? null,
                 ];
@@ -292,8 +290,8 @@ class server extends webservice_base_server {
         ];
 
         $payload = [
-            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
-            'id' => $this->mcprequest?->id ?? null,
+            'jsonrpc' => $this->mcprequest->jsonrpc,
+            'id' => $this->mcprequest->id,
             'result' => $result,
         ];
 
@@ -320,7 +318,7 @@ class server extends webservice_base_server {
         echo $this->safe_json_encode([
             'jsonrpc' => '2.0',
             'result' => new stdClass(),
-            'id' => $this->mcprequest?->id ?? null,
+            'id' => $this->mcprequest->id,
         ]);
     }
 
@@ -333,8 +331,8 @@ class server extends webservice_base_server {
         $tools = tool_provider::get_tools($this->token);
 
         $payload = [
-            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
-            'id' => $this->mcprequest?->id ?? null,
+            'jsonrpc' => $this->mcprequest->jsonrpc,
+            'id' => $this->mcprequest->id,
             'result' => [
                 'tools' => $tools,
             ],
@@ -346,38 +344,42 @@ class server extends webservice_base_server {
     /**
      * Send a successful response for standard function calls.
      *
-     * Applies schema-aware type coercion so that every field in the response
-     * matches the PHP type declared by Moodle's external API schema, without
-     * calling clean_returnvalue() (which throws for valid-but-mistyped data
-     * such as null in optional boolean fields or integers in PARAM_RAW slots).
+     * This method validates return values using external_api and wraps
+     * the result in MCP tools/call format when appropriate.
      *
      * @return void
      */
     protected function send_response(): void {
-        // Apply schema-aware coercion: walk schema + data together and emit
-        // the correct PHP type for each leaf field.  This handles cases such as:
-        //   • PARAM_RAW returning int/bool → converted to string
-        //   • PARAM_BOOL optional returning null → false
-        //   • PARAM_INT returning string → (int)
-        // without the side-effect of converting every integer field to a string
-        // the way the old generic coerce_types() fallback did.
-        if ($this->function->returns_desc !== null) {
-            $validatedvalues = $this->schema_aware_coerce(
-                $this->function->returns_desc,
-                $this->returns
-            );
-        } else {
-            $validatedvalues = $this->returns;
+        $validatedvalues = null;
+        $exception = null;
+
+        try {
+            if ($this->function->returns_desc !== null) {
+                $validatedvalues = self::clean_response(
+                    $this->function->returns_desc,
+                    $this->returns
+                );
+            } else {
+                $validatedvalues = $this->returns;
+            }
+        } catch (Exception $ex) {
+            $exception = $ex;
         }
 
-        // Wrap result for tools/call format.
+        if ($exception !== null) {
+            $response = $this->generate_error($exception);
+            echo $this->safe_json_encode($response);
+            return;
+        }
+
+        // Fix arrays to be objects for tools/call format.
         $validatedvalues = [
             'result' => $validatedvalues,
         ];
 
         $content = [
             'type' => 'text',
-            'text' => $this->safe_json_encode($validatedvalues),
+            'text' => json_encode($validatedvalues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ];
 
         $result = [
@@ -386,122 +388,12 @@ class server extends webservice_base_server {
         ];
 
         $payload = [
-            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
-            'id' => $this->mcprequest?->id ?? null,
+            'jsonrpc' => $this->mcprequest->jsonrpc,
+            'id' => $this->mcprequest->id,
             'result' => $result,
         ];
 
         echo $this->safe_json_encode($payload);
-    }
-
-    /**
-     * Schema-aware type coercion.
-     *
-     * Walks the Moodle external API schema descriptor and the raw response data
-     * together, applying the minimum necessary type conversion at every leaf so
-     * that the returned value always matches its declared PHP type.
-     *
-     * Rules applied per PARAM_* type:
-     *   PARAM_BOOL         → (bool) — null becomes false for optional fields
-     *   PARAM_INT          → (int)
-     *   PARAM_FLOAT        → (float)
-     *   PARAM_RAW and rest → (string) — ints/bools Moodle sometimes returns here
-     *                                    are cast to string
-     *
-     * This avoids the old double-failure pattern:
-     *   1. clean_returnvalue() throws because of a type mismatch
-     *   2. coerce_types() blindly converts every scalar (including valid integers)
-     *      to a string, breaking fields that were correct to begin with.
-     *
-     * @param external_description|null $desc  Schema descriptor for this node.
-     * @param mixed                     $data  Raw value from Moodle.
-     * @return mixed  Coerced value.
-     */
-    protected function schema_aware_coerce(?external_description $desc, mixed $data): mixed {
-        // No schema → pass data through unchanged.
-        if ($desc === null) {
-            return $data;
-        }
-
-        // --- external_multiple_structure (JSON array) ---
-        if ($desc instanceof external_multiple_structure) {
-            if ($data === null) {
-                return [];
-            }
-            $result = [];
-            $items = is_array($data) ? $data : (array) $data;
-            foreach ($items as $item) {
-                $result[] = $this->schema_aware_coerce($desc->content, $item);
-            }
-            return $result;
-        }
-
-        // --- external_single_structure (JSON object) ---
-        if ($desc instanceof external_single_structure) {
-            if ($data === null) {
-                return [];
-            }
-            $map = is_array($data) ? $data : (array) $data;
-            $result = [];
-            foreach ($desc->keys as $key => $subdesc) {
-                // Use declared default when the key is completely absent.
-                $value = array_key_exists($key, $map) ? $map[$key] : $subdesc->default ?? null;
-                $result[$key] = $this->schema_aware_coerce($subdesc, $value);
-            }
-            return $result;
-        }
-
-        // --- external_warnings (special Moodle type, always an array of objects) ---
-        if ($desc instanceof external_warnings) {
-            if ($data === null) {
-                return [];
-            }
-            $items = is_array($data) ? $data : (array) $data;
-            $result = [];
-            foreach ($items as $w) {
-                $result[] = is_array($w) ? $w : (array) $w;
-            }
-            return $result;
-        }
-
-        // --- external_value (leaf scalar) ---
-        if ($desc instanceof external_value) {
-            // Null handling for optional fields.
-            if ($data === null) {
-                if ($desc->required === VALUE_OPTIONAL || $desc->required === VALUE_DEFAULT) {
-                    // Return a safe zero-value for the declared type.
-                    return match ($desc->type) {
-                        PARAM_BOOL  => false,
-                        PARAM_INT   => 0,
-                        PARAM_FLOAT => 0.0,
-                        default     => '',
-                    };
-                }
-                // Required field that is null — return a safe default anyway to
-                // avoid a PHP error; the data is already wrong at the Moodle level.
-                return match ($desc->type) {
-                    PARAM_BOOL  => false,
-                    PARAM_INT   => 0,
-                    PARAM_FLOAT => 0.0,
-                    default     => '',
-                };
-            }
-
-            // Cast to the declared type.
-            return match ($desc->type) {
-                PARAM_BOOL  => (bool) $data,
-                PARAM_INT   => (int) $data,
-                PARAM_FLOAT => (float) $data,
-                // PARAM_RAW, PARAM_TEXT, PARAM_ALPHA, PARAM_ALPHANUMEXT, etc.
-                // Moodle sometimes returns integers for these fields (e.g.
-                // courseformatoptions[].value, attachment). Cast to string so
-                // consumers always get what the schema advertises.
-                default     => (string) $data,
-            };
-        }
-
-        // Unknown descriptor type — return data as-is.
-        return $data;
     }
 
     /**
@@ -515,19 +407,7 @@ class server extends webservice_base_server {
             $this->log_exception_for_debug($ex);
         }
 
-        $error = $this->generate_error($ex);
-        $errorcode = $error['error']['code'] ?? -32603;
-
-        // Map JSON-RPC error codes to appropriate HTTP status codes.
-        match ($errorcode) {
-            -32600 => http_response_code(400),
-            -32601 => http_response_code(404),
-            -32602 => http_response_code(400),
-            -32603 => http_response_code(500),
-            default => http_response_code(500),
-        };
-
-        echo $this->safe_json_encode($error);
+        echo $this->safe_json_encode($this->generate_error($ex));
     }
 
     /**
@@ -537,14 +417,11 @@ class server extends webservice_base_server {
      * @return array The formatted error response containing error code, message, and additional data.
      */
     protected function generate_error($ex): array {
-        $jsonrpc = $this->mcprequest?->jsonrpc ?? '2.0';
-        $requestid = $this->mcprequest?->id;
-
         if ($ex === null) {
             return [
-                'jsonrpc' => $jsonrpc,
+                'jsonrpc' => $this->mcprequest->jsonrpc,
                 'error' => ['code' => -32603, 'message' => 'Internal error'],
-                'id' => $requestid,
+                'id' => $this->mcprequest->id,
             ];
         }
 
@@ -563,13 +440,13 @@ class server extends webservice_base_server {
         }
 
         return [
-            'jsonrpc' => '2.0',
+            'jsonrpc' => $this->mcprequest->id ?? '2.0',
             'error' => [
                 'code' => -32603,
                 'message' => $ex->getMessage(),
                 'data' => $errordata,
             ],
-            'id' => $requestid,
+            'id' => $this->mcprequest->id ?? null,
         ];
     }
 
@@ -606,9 +483,9 @@ class server extends webservice_base_server {
         if ($encoded === false) {
             // Avoid leaking internal structures; return minimal error JSON-RPC.
             $fallback = [
-                'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
+                'jsonrpc' => $this->mcprequest->jsonrpc,
                 'error' => ['code' => -32603, 'message' => 'Internal JSON encoding error'],
-                'id' => $this->mcprequest?->id ?? null,
+                'id' => $this->mcprequest->id,
             ];
             return json_encode($fallback);
         }

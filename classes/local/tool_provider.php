@@ -79,21 +79,19 @@ class tool_provider {
             }
 
             $inputschema = self::build_schema($info->parameters_desc);
+            $outputschema = self::build_schema($info->returns_desc);
 
-            // Skip outputSchema generation to avoid MCP SDK schema validation errors.
-            // The Python MCP SDK validates tool responses against outputSchema using
-            // jsonschema, which has a custom metaschema that rejects certain valid
-            // JSON Schema constructs (e.g., {'type': 'integer'} in nested schemas).
-            // By omitting outputSchema, responses pass through without validation.
-            $toolDef = [
+            $tools[] = [
                 'name' => $info->name,
                 'description' => $info->description ?? '',
                 'inputSchema' => $inputschema,
+                'outputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'result' => $outputschema,
+                    ],
+                ],
             ];
-
-            // Only add outputSchema for tools that we know work correctly.
-            // For most Moodle tools, skip it to avoid MCP SDK validation errors.
-            $tools[] = $toolDef;
         }
 
         return $tools;
@@ -142,12 +140,6 @@ class tool_provider {
             // Mark as internally required for parent structure processing.
             if ($param->required === VALUE_REQUIRED) {
                 $schema['_required'] = true;
-            }
-
-            // Handling for nullable values in JSON Schema.
-            if ($param->allownull == NULL_ALLOWED) {
-                $schema['type'] = [$type, 'null'];
-            }
 
             return $schema;
         }
@@ -195,22 +187,21 @@ class tool_provider {
     /**
      * Convert Moodle parameter type to JSON Schema type.
      *
-     * Returns simple string types that the Python MCP SDK's metaschema accepts.
-     * Type coercion on the server side ensures returned data matches these types,
-     * even when Moodle's API returns null or mismatched values.
-     *
      * @param external_description $param The parameter description.
-     * @return string JSON Schema type (integer, number, boolean, object, array).
+     * @return string JSON Schema type (string, integer, number, boolean, object, array).
      */
     protected static function get_schema_type(external_description $param): string {
         if ($param instanceof external_value) {
-            return match ($param->type) {
-                PARAM_INT, PARAM_FLOAT => 'integer',
-                PARAM_BOOL => 'boolean',
-                // Moodle external API sometimes returns integers or booleans for fields
-                // declared as string. Accept both to prevent MCP client validation errors.
-                default => 'string',
-            };
+            switch ($param->type) {
+                case PARAM_INT:
+                    return 'integer';
+                case PARAM_FLOAT:
+                    return 'number';
+                case PARAM_BOOL:
+                    return 'boolean';
+                default:
+                    return 'string';
+            }
         }
 
         if ($param instanceof external_single_structure) {
