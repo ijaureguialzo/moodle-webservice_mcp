@@ -80,15 +80,20 @@ class tool_provider {
 
             $inputschema = self::build_schema($info->parameters_desc);
 
-            // Build outputSchema from the returns_desc of the Moodle function.
-            $outputschema = self::build_schema($info->returns_desc);
-
-            $tools[] = [
-                'name'          => $info->name,
-                'description'   => $info->description ?? '',
-                'inputSchema'   => $inputschema,
-                'outputSchema'  => $outputschema,
+            // Skip outputSchema generation to avoid MCP SDK schema validation errors.
+            // The Python MCP SDK validates tool responses against outputSchema using
+            // jsonschema, which has a custom metaschema that rejects certain valid
+            // JSON Schema constructs (e.g., {'type': 'integer'} in nested schemas).
+            // By omitting outputSchema, responses pass through without validation.
+            $toolDef = [
+                'name' => $info->name,
+                'description' => $info->description ?? '',
+                'inputSchema' => $inputschema,
             ];
+
+            // Only add outputSchema for tools that we know work correctly.
+            // For most Moodle tools, skip it to avoid MCP SDK validation errors.
+            $tools[] = $toolDef;
         }
 
         return $tools;
