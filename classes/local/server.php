@@ -219,9 +219,9 @@ class server extends webservice_base_server {
             // Bad request.
             http_response_code(400);
             echo $this->safe_json_encode([
-                'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
+                'jsonrpc' => '2.0',
                 'error' => ['code' => -32600, 'message' => 'Invalid Request'],
-                'id' => $this->mcprequest->id ?? null,
+                'id' => $this->mcprequest?->id ?? null,
             ]);
             exit;
         }
@@ -245,8 +245,9 @@ class server extends webservice_base_server {
 
             default:
                 // If method unexpectedly reached here, return method not found.
+                http_response_code(404);
                 $payload = [
-                    'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
+                    'jsonrpc' => '2.0',
                     'error' => ['code' => -32601, 'message' => 'Method not found'],
                     'id' => $this->mcprequest->id ?? null,
                 ];
@@ -291,8 +292,8 @@ class server extends webservice_base_server {
         ];
 
         $payload = [
-            'jsonrpc' => $this->mcprequest->jsonrpc,
-            'id' => $this->mcprequest->id,
+            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
+            'id' => $this->mcprequest?->id ?? null,
             'result' => $result,
         ];
 
@@ -319,7 +320,7 @@ class server extends webservice_base_server {
         echo $this->safe_json_encode([
             'jsonrpc' => '2.0',
             'result' => new stdClass(),
-            'id' => $this->mcprequest->id,
+            'id' => $this->mcprequest?->id ?? null,
         ]);
     }
 
@@ -332,8 +333,8 @@ class server extends webservice_base_server {
         $tools = tool_provider::get_tools($this->token);
 
         $payload = [
-            'jsonrpc' => $this->mcprequest->jsonrpc,
-            'id' => $this->mcprequest->id,
+            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
+            'id' => $this->mcprequest?->id ?? null,
             'result' => [
                 'tools' => $tools,
             ],
@@ -385,8 +386,8 @@ class server extends webservice_base_server {
         ];
 
         $payload = [
-            'jsonrpc' => $this->mcprequest->jsonrpc,
-            'id' => $this->mcprequest->id,
+            'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
+            'id' => $this->mcprequest?->id ?? null,
             'result' => $result,
         ];
 
@@ -514,7 +515,19 @@ class server extends webservice_base_server {
             $this->log_exception_for_debug($ex);
         }
 
-        echo $this->safe_json_encode($this->generate_error($ex));
+        $error = $this->generate_error($ex);
+        $errorcode = $error['error']['code'] ?? -32603;
+
+        // Map JSON-RPC error codes to appropriate HTTP status codes.
+        match ($errorcode) {
+            -32600 => http_response_code(400),
+            -32601 => http_response_code(404),
+            -32602 => http_response_code(400),
+            -32603 => http_response_code(500),
+            default => http_response_code(500),
+        };
+
+        echo $this->safe_json_encode($error);
     }
 
     /**
@@ -524,11 +537,14 @@ class server extends webservice_base_server {
      * @return array The formatted error response containing error code, message, and additional data.
      */
     protected function generate_error($ex): array {
+        $jsonrpc = $this->mcprequest?->jsonrpc ?? '2.0';
+        $requestid = $this->mcprequest?->id;
+
         if ($ex === null) {
             return [
-                'jsonrpc' => $this->mcprequest->jsonrpc,
+                'jsonrpc' => $jsonrpc,
                 'error' => ['code' => -32603, 'message' => 'Internal error'],
-                'id' => $this->mcprequest->id,
+                'id' => $requestid,
             ];
         }
 
@@ -547,13 +563,13 @@ class server extends webservice_base_server {
         }
 
         return [
-            'jsonrpc' => $this->mcprequest->id ?? '2.0',
+            'jsonrpc' => '2.0',
             'error' => [
                 'code' => -32603,
                 'message' => $ex->getMessage(),
                 'data' => $errordata,
             ],
-            'id' => $this->mcprequest->id ?? null,
+            'id' => $requestid,
         ];
     }
 
@@ -590,9 +606,9 @@ class server extends webservice_base_server {
         if ($encoded === false) {
             // Avoid leaking internal structures; return minimal error JSON-RPC.
             $fallback = [
-                'jsonrpc' => $this->mcprequest->jsonrpc,
+                'jsonrpc' => $this->mcprequest?->jsonrpc ?? '2.0',
                 'error' => ['code' => -32603, 'message' => 'Internal JSON encoding error'],
-                'id' => $this->mcprequest->id,
+                'id' => $this->mcprequest?->id ?? null,
             ];
             return json_encode($fallback);
         }
