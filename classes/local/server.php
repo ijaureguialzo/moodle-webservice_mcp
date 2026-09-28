@@ -76,6 +76,12 @@ class server extends webservice_base_server {
      * Handles the complete request lifecycle: parsing, authentication,
      * execution, and response generation.
      *
+     * For MCP-specific methods (initialize, ping, tools/list, tools/call
+     * with no function name), handles the MCP protocol directly.
+     * For standard Moodle external function calls, delegates to the
+     * parent webservice_base_server::run() which handles load_function_info()
+     * and execute().
+     *
      * @return void
      */
     public function run(): void {
@@ -105,8 +111,18 @@ class server extends webservice_base_server {
             die;
         }
 
-        // Use parent flow for standard function calls.
-        parent::run();
+        // For standard function calls (tools/call with a Moodle external
+        // function), we must call load_function_info() and execute() —
+        // parent::run() does these as part of its own parse_request() /
+        // authenticate_user() / execute() sequence.  We have already done
+        // parse_request() and authenticate_user(), so call the remaining
+        // steps directly:
+        $this->load_function_info();
+        $this->execute();
+        $this->send_response();
+        $this->session_cleanup();
+
+        die;
     }
 
     /**
