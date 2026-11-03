@@ -132,6 +132,7 @@ class create_section extends external_api {
         $event = \core\event\course_section_updated::create([
             'objectid' => $section->id,
             'context' => $context,
+            'other' => ['sectionnum' => $number],
         ]);
         $event->trigger();
 

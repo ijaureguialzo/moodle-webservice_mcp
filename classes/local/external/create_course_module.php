@@ -163,8 +163,17 @@ class create_course_module extends external_api {
 
         // Intro: always set it (some modules such as forum have a NOT NULL
         // intro column). Modules without an intro column simply ignore it.
+        // For modules that support FEATURE_MOD_INTRO, create_module() requires
+        // the introeditor array, so provide it (itemid 0 = no draft files).
         $moduleinfo->intro = $params['intro'];
         $moduleinfo->introformat = FORMAT_HTML;
+        if (\plugin_supports('mod', $modname, FEATURE_MOD_INTRO, true)) {
+            $moduleinfo->introeditor = array(
+                'text' => $params['intro'],
+                'format' => FORMAT_HTML,
+                'itemid' => 0,
+            );
+        }
 
         // Content fields depend on the module type: the "url" resource stores
         // the link in externalurl, while page/folder/resource use "content".
