@@ -61,6 +61,17 @@ class create_course_module extends external_api {
                 'content' => new external_value(PARAM_RAW, 'Activity content (text/HTML for page)', VALUE_OPTIONAL, ''),
                 'contentformat' => new external_value(PARAM_INT, 'Content format (FORMAT_HTML=1, FORMAT_TEXT=0)', VALUE_OPTIONAL, FORMAT_HTML),
                 'visible' => new external_value(PARAM_BOOL, 'Whether the activity is visible', VALUE_OPTIONAL, true),
+                'extrafields' => new external_multiple_structure(
+                    new external_single_structure(
+                        array(
+                            'name' => new external_value(PARAM_ALPHANUMEXT, 'Module instance field name (must be a column of the module table)'),
+                            'value' => new external_value(PARAM_RAW, 'Field value'),
+                        )
+                    ),
+                    'Extra module instance fields beyond name/intro/content (e.g. wiki defaultformat). Only real module-table columns are applied.',
+                    VALUE_DEFAULT,
+                    array()
+                ),
             )
         );
     }
@@ -115,6 +126,7 @@ class create_course_module extends external_api {
      * @param string $content Activity content (page/URL body).
      * @param int $contentformat Content format (FORMAT_HTML=1, FORMAT_TEXT=0).
      * @param bool $visible Whether the activity is visible.
+     * @param array $extrafields Optional name/value pairs applied to the module instance (whitelisted to module-table columns).
      * @return array Array with status, coursemoduleid, instanceid, cmurl and warnings.
      * @throws moodle_exception
      */
@@ -126,13 +138,14 @@ class create_course_module extends external_api {
         $intro = '',
         $content = '',
         $contentformat = FORMAT_HTML,
-        $visible = true
+        $visible = true,
+        $extrafields = array()
     ) {
         global $CFG, $DB;
 
         $params = self::validate_parameters(
             self::create_course_module_parameters(),
-            compact('courseid', 'modname', 'name', 'section', 'intro', 'content', 'contentformat', 'visible')
+            compact('courseid', 'modname', 'name', 'section', 'intro', 'content', 'contentformat', 'visible', 'extrafields')
         );
 
         $modname = $params['modname'];
@@ -189,6 +202,25 @@ class create_course_module extends external_api {
         if ($modname === 'url' && $params['content'] === '') {
             $moduleinfo->externalurl = 'http://';
             $moduleinfo->display = RESOURCELIB_DISPLAY_AUTO;
+        }
+
+        // Apply caller-supplied instance fields (e.g. wiki defaultformat /
+        // forceformat). Whitelisted to real columns of the module table and to
+        // fields not already set here, so core bookkeeping cannot be clobbered.
+        if (!empty($params['extrafields'])) {
+            $allowed = [];
+            foreach ($DB->get_columns($module->tablename) as $column) {
+                $allowed[] = $column->getName();
+            }
+            $reserved = ['id', 'course', 'name', 'intro', 'introformat', 'content',
+                'contentformat', 'externalurl', 'visible', 'section', 'timemodified', 'timecreated'];
+            foreach ($params['extrafields'] as $field) {
+                $key = $field['name'];
+                if (!preg_match('/^[a-z][a-z0-9_]*$/', $key) || !in_array($key, $allowed) || in_array($key, $reserved)) {
+                    continue;
+                }
+                $moduleinfo->$key = $field['value'];
+            }
         }
 
         $moduleinfo = \create_module($moduleinfo);
