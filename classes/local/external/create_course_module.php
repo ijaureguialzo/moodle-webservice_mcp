@@ -161,19 +161,24 @@ class create_course_module extends external_api {
         $moduleinfo->visible = (int) !empty($params['visible']);
         $moduleinfo->name = $params['name'];
 
-        if ($params['intro'] !== '') {
-            $moduleinfo->intro = $params['intro'];
-            $moduleinfo->introeditor = array('text' => $params['intro'], 'format' => FORMAT_HTML);
-        }
+        // Intro: always set it (some modules such as forum have a NOT NULL
+        // intro column). Modules without an intro column simply ignore it.
+        $moduleinfo->intro = $params['intro'];
+        $moduleinfo->introformat = FORMAT_HTML;
 
-        // Only some modules (page/url/folder/resource) have a "content" column.
+        // Content fields depend on the module type: the "url" resource stores
+        // the link in externalurl, while page/folder/resource use "content".
         if ($params['content'] !== '') {
-            $moduleinfo->content = $params['content'];
-            if (property_exists($moduleinfo, 'contentformat')) {
-                $moduleinfo->contentformat = $params['contentformat'];
+            if ($modname === 'url') {
+                $moduleinfo->externalurl = $params['content'];
             } else {
+                $moduleinfo->content = $params['content'];
                 $moduleinfo->contentformat = $params['contentformat'];
             }
+            $moduleinfo->display = RESOURCELIB_DISPLAY_AUTO;
+        }
+        if ($modname === 'url' && $params['content'] === '') {
+            $moduleinfo->externalurl = 'http://';
             $moduleinfo->display = RESOURCELIB_DISPLAY_AUTO;
         }
 

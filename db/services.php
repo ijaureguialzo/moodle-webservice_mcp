@@ -35,4 +35,13 @@ $functions = array(
         'services'      => array('moodle_mcp'),
     ),
 
+    'webservice_mcp_create_section' => array(
+        'classname'     => 'webservice_mcp\local\external\create_section',
+        'methodname'    => 'create_section',
+        'description'   => 'Create (or rename) a named course section with a summary.',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'services'      => array('moodle_mcp'),
+    ),
+
 );
