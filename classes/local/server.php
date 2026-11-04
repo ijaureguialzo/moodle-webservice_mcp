@@ -70,6 +70,106 @@ class server extends webservice_base_server {
     }
 
     /**
+     * Execute the previously loaded function using the request parameters.
+     *
+     * Mirrors the base webservice server execute(), but fixes a positional
+     * argument shift: the base implementation re-indexes the validated
+     * parameters with array_values() before call_user_func_array(). MCP
+     * clients routinely send partial JSON (omitting optional parameters),
+     * and re-indexing slides the remaining values into the slot of the
+     * omitted parameter, silently corrupting the call. Here the parameter
+     * list is rebuilt per schema key, back-filling omitted keys with the
+     * method parameter defaults, so the positional order is always complete
+     * and correct.
+     *
+     * @return void
+     */
+    protected function execute() {
+        // Validate params, this also sorts the params properly, we need the correct order in the next part
+        $params = call_user_func(array($this->function->classname, 'validate_parameters'), $this->function->parameters_desc, $this->parameters);
+        $params = $this->build_positional_args($this->function->classname, $this->function->methodname, $this->function->parameters_desc, $params);
+
+        // Allow any Moodle plugin a chance to override this call. This is a convenient spot to
+        // make arbitrary behaviour customisations, for example to affect the mobile app behaviour.
+        // The overriding plugin could call the 'real' function first and then modify the results,
+        // or it could do a completely separate thing.
+        $callbacks = get_plugins_with_function('override_webservice_execution');
+        foreach ($callbacks as $plugintype => $plugins) {
+            foreach ($plugins as $plugin => $callback) {
+                $result = $callback($this->function, $params);
+                if ($result !== false) {
+                    // If the callback returns anything other than false, we assume it replaces the
+                    // real function.
+                    $this->returns = $result;
+                    return;
+                }
+            }
+        }
+
+        // execute - yay!
+        $this->returns = call_user_func_array(array($this->function->classname, $this->function->methodname), $params);
+    }
+
+    /**
+     * Build a complete positional argument list for the external function method.
+     *
+     * The external API convention is that schema keys and method parameters
+     * match in name and order. This method iterates the schema keys in
+     * declared order and emits, for each one:
+     *   - the validated value when the caller supplied it, otherwise
+     *   - the method parameter default (via reflection) when available,
+     *   - the schema default (VALUE_DEFAULT entries) as a last resort.
+     * Omitted keys are always back-filled, which prevents the positional
+     * shift that array_values() would cause with partial JSON arguments.
+     *
+     * @param string $classname The external function class name.
+     * @param string $methodname The external function method name.
+     * @param external_description $desc The function parameters description.
+     * @param array $validated The validated parameters (keyed by schema key).
+     * @return array Complete positional argument list.
+     */
+    protected function build_positional_args(string $classname, string $methodname, external_description $desc, array $validated): array {
+        $defaults = [];
+        try {
+            $method = new \ReflectionMethod($classname, $methodname);
+            foreach ($method->getParameters() as $index => $parameter) {
+                $defaults[$index] = $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null;
+            }
+        } catch (\ReflectionException $e) {
+            // Cannot introspect the method: keep the core behaviour.
+            return array_values($validated);
+        }
+
+        $args = [];
+        foreach ($desc->keys as $key => $subdesc) {
+            if (array_key_exists($key, $validated)) {
+                $args[] = $validated[$key];
+                continue;
+            }
+            // Key omitted by the caller: back-fill with the method default so
+            // the following values keep their slot (fall back to the schema
+            // default, then to null).
+            $index = count($args);
+            if (array_key_exists($index, $defaults) && $defaults[$index] !== null) {
+                $args[] = $defaults[$index];
+            } else {
+                $args[] = ($subdesc instanceof external_value) ? $subdesc->default : null;
+            }
+        }
+
+        // Pad with remaining method defaults, or trim, to match the exact
+        // method arity (guards against schema/method arity mismatches).
+        while (count($args) < count($defaults)) {
+            $args[] = $defaults[count($args)] ?? null;
+        }
+        if (count($args) > count($defaults)) {
+            array_splice($args, count($defaults));
+        }
+
+        return $args;
+    }
+
+    /**
      * Main server execution method.
      *
      * Handles the complete request lifecycle: parsing, authentication,
