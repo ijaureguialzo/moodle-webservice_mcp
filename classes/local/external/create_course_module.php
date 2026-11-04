@@ -229,7 +229,7 @@ class create_course_module extends external_api {
             // DML layer anymore).
             try {
                 foreach ($DB->get_columns($modname) as $column) {
-                    $allowed[] = $column->getName();
+                    $allowed[] = $column->name;
                 }
             } catch (\dml_exception $e) {
                 // No known table: accept no extra fields.
