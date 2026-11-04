@@ -85,6 +85,54 @@ This plugin bridges Moodle's web services with the MCP protocol, enabling AI ass
 
 Ensure users have the `webservice/mcp:use` capability to access the MCP web service.
 
+## Resource capabilities (what you can create / edit / delete)
+
+The table below lists each resource type and what an MCP client can do with
+it. Legend: ✅ fully supported · ⚠️ partially supported · ❌ no web service
+for it (not possible through MCP).
+
+Two things make resources work:
+
+1. **The two plugin functions are registered automatically** for the
+   `moodle_mcp` service when the plugin is upgraded (`webservice_mcp_create_section`
+   and `webservice_mcp_create_course_module`) — no UI action needed, they
+   appear in `tools/list` on their own.
+2. **Every core function in the last column must be added by an admin** to
+   your service (Site administration → Server → Web services → External
+   services → your service → *Add function(s)*). The `mdl_external_services_functions`
+   link table is what gates both tool visibility and execution. The full
+   per-feature breakdown lives in [`specs/005-webservice-activation.md`](specs/005-webservice-activation.md).
+
+| Resource | Create | Edit | Delete | Core web-service functions to enable |
+|---|---|---|---|---|
+| **Course** | ✅ | ✅ | ✅ | `core_course_create_courses`, `core_course_update_courses`, `core_course_delete_courses` |
+| **Category** | ✅ | ✅ | ✅ | `core_course_create_categories`, `core_course_update_categories`, `core_course_delete_categories` |
+| **Section** | ✅ plugin `webservice_mcp_create_section` (also renames) | ⚠️ rename via the same plugin function | ❌ no web service | none (plugin auto-registered) |
+| **Any activity (generic delete)** | ✅ plugin `webservice_mcp_create_course_module` (any `modname`) | — | ✅ `core_course_delete_modules` (list of cm ids) | `core_course_delete_modules` |
+| **Page** | ✅ plugin | ❌ no core write service | ✅ `core_course_delete_modules` | `core_course_delete_modules` |
+| **URL / file Resource / Folder / Label** | ✅ plugin | ❌ no core write services | ✅ `core_course_delete_modules` | `core_course_delete_modules` |
+| **Forum** | ✅ plugin | ⚠️ discussions: `mod_forum_add_discussion`, `mod_forum_add_discussion_post`, `mod_forum_update_discussion_post`, `mod_forum_delete_post` · state: `mod_forum_set_lock_state`, `mod_forum_set_pin_state` | ✅ | the six above (+ `mod_forum_get_forums_by_courses`, `mod_forum_get_forum_discussions` to read back) |
+| **Wiki** | ✅ plugin (use `extrafields`: `defaultformat=html`, `forceformat=1`) | ✅ pages: `mod_wiki_new_page`, `mod_wiki_edit_page` | ⚠️ instance via `core_course_delete_modules`; no page-delete service | `mod_wiki_new_page`, `mod_wiki_edit_page`, `mod_wiki_get_subwiki_pages`, `mod_wiki_view_wiki` |
+| **Glossary** | ✅ plugin | ✅ entries: `mod_glossary_add_entry`, `mod_glossary_update_entry`, `mod_glossary_delete_entry` | ✅ instance; entries via `mod_glossary_delete_entry` | the three above (+ `mod_glossary_get_entries_by_search`, `mod_glossary_get_glossaries_by_courses` to read back) |
+| **Book** | ✅ plugin | ❌ core exposes read-only functions (`mod_book_get_books_by_courses`, `mod_book_view_book`) | ✅ | `core_course_delete_modules` (use a wiki or page instead if you need editable content) |
+| **Quiz** | ✅ plugin (skeleton; questions are not creatable via web services) | ⚠️ `mod_quiz_save_attempt`, `mod_quiz_save_overrides`, `mod_quiz_update_grade_items`, `mod_quiz_add_random_questions`, `mod_quiz_update_slots` | ✅ | the five above (+ `mod_quiz_get_quizzes_by_courses` to read back) |
+| **Assignment** | ✅ plugin | ✅ `mod_assign_save_submission`, `mod_assign_remove_submission`, `mod_assign_save_grade`, `mod_assign_lock_submissions`, `mod_assign_reveal_identities` | ✅ | the five above (+ `mod_assign_get_submissions` to read back) |
+| **Choice** | ✅ plugin | ✅ `mod_choice_submit_choice_response`, `mod_choice_delete_choice_responses` | ✅ | the two above |
+| **Database (`data`)** | ✅ plugin | ✅ `mod_data_add_entry`, `mod_data_update_entry`, `mod_data_delete_entry` | ✅ | the three above |
+| **Workshop** | ✅ plugin | ✅ `mod_workshop_add_submission`, `mod_workshop_update_submission`, `mod_workshop_delete_submission`, `mod_workshop_update_assessment` | ✅ | the four above |
+
+**Notes**
+
+- The token's user must hold the capability required by each function in the
+  right context (typically a *teacher* or *editing teacher* role on the course
+  for create/edit/delete; `moodle/course:manageactivities` for the plugin
+  functions).
+- Deleting any activity: get the cm ids with `core_course_get_contents`, then
+  call `core_course_delete_modules` with `cmids`.
+- Enrolment/role management (not a resource, but needed to make a user a
+  teacher): `enrol_manual_enrol_users`, `enrol_manual_unenrol_users`,
+  `core_role_assign_roles`, `core_role_unassign_roles`.
+
 ## Usage
 
 #### Endpoint URL
