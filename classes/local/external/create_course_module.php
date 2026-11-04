@@ -223,11 +223,12 @@ class create_course_module extends external_api {
         // fields not already set here, so core bookkeeping cannot be clobbered.
         if (!empty($params['extrafields'])) {
             $allowed = [];
-            // The instance table of a module is always "mod_<modname>"; do not
-            // rely on record objects exposing a ->tablename property (it is not
-            // set by the DML layer anymore).
+            // The instance table of a module is the module name itself
+            // (wiki -> "wiki", page -> "page", ...); do not rely on record
+            // objects exposing a ->tablename property (it is not set by the
+            // DML layer anymore).
             try {
-                foreach ($DB->get_columns('mod_' . $modname) as $column) {
+                foreach ($DB->get_columns($modname) as $column) {
                     $allowed[] = $column->getName();
                 }
             } catch (\dml_exception $e) {
