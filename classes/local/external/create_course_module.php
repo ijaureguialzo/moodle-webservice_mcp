@@ -205,13 +205,33 @@ class create_course_module extends external_api {
             $moduleinfo->display = RESOURCELIB_DISPLAY_AUTO;
         }
 
+        // The page module unconditionally reads its display options
+        // (printintro / printlastmodified) in page_add_instance(); set
+        // defaults so the creation stays clean even under developer
+        // debugging. insert_record() filters properties that are not
+        // real columns, so these are never persisted as such.
+        if ($modname === 'page') {
+            if (!isset($moduleinfo->display)) {
+                $moduleinfo->display = RESOURCELIB_DISPLAY_AUTO;
+            }
+            $moduleinfo->printintro = 0;
+            $moduleinfo->printlastmodified = 0;
+        }
+
         // Apply caller-supplied instance fields (e.g. wiki defaultformat /
         // forceformat). Whitelisted to real columns of the module table and to
         // fields not already set here, so core bookkeeping cannot be clobbered.
         if (!empty($params['extrafields'])) {
             $allowed = [];
-            foreach ($DB->get_columns($module->tablename) as $column) {
-                $allowed[] = $column->getName();
+            // The instance table of a module is always "mod_<modname>"; do not
+            // rely on record objects exposing a ->tablename property (it is not
+            // set by the DML layer anymore).
+            try {
+                foreach ($DB->get_columns('mod_' . $modname) as $column) {
+                    $allowed[] = $column->getName();
+                }
+            } catch (\dml_exception $e) {
+                // No known table: accept no extra fields.
             }
             $reserved = ['id', 'course', 'name', 'intro', 'introformat', 'content',
                 'contentformat', 'externalurl', 'visible', 'section', 'timemodified', 'timecreated'];
